@@ -55,7 +55,7 @@ app.post('/messages', (req, res) => {
   res.json({ success: true });
 });
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`Beacon server running on port ${port}`);
 });
