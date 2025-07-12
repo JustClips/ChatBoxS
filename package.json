@@ -1,6 +1,7 @@
 {
-  "name": "eps1llon-beacon-server",
+  "name": "chatbox-server",
   "version": "1.0.0",
+  "description": "ChatBoxs production server – messages + beacon API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
