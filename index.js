@@ -1,105 +1,77 @@
-// index.js
-const express = require("express");
-const cors    = require("cors");
+const express = require('express');
+const app = express();
+app.use(express.json()); // Middleware to parse JSON bodies
 
-const app      = express();
-const PORT     = process.env.PORT || 8080;
-const TIMEOUT  = 15_000; // 15 seconds
+// This object will store the active sessions in memory.
+// For a production app, you might want to use a database like Redis instead.
+const activeSessions = {};
 
-app.use(cors());
-app.use(express.json());
-
-// In-memory stores:
-let messages = [];      // chat log
-const active = {};      // { [jobId]: { [userId]: { username, lastTime } } }
-
-// — Chat endpoints —
-
-// GET all messages
-app.get("/messages", (req, res) => {
-  res.json(messages);
-});
-
-// POST a new message
-app.post("/messages", (req, res) => {
-  const { user, text } = req.body;
-  if (typeof user !== "string" || typeof text !== "string") {
-    return res.status(400).json({ error: "Invalid user/text" });
-  }
-  messages.push({ user, text, time: Date.now() });
-  if (messages.length > 200) messages.shift();
-  res.json({ success: true });
-});
-
-// — Beacon POST —
-// Record heartbeat (with username!)
-app.post("/beacon", (req, res) => {
-  const { userId, username, jobId } = req.body;
-  if (!userId || !username || !jobId) {
-    return res.status(400).json({ error: "Must include userId, username, jobId" });
-  }
-
-  if (!active[jobId]) active[jobId] = {};
-  active[jobId][userId] = {
-    username,
-    lastTime: Date.now()
-  };
-
-  res.json({ success: true });
-});
-
-// — Per-server GET —
-// Returns { count, users: [ { userId, username, jobId }… ] }
-app.get("/beacon", (req, res) => {
-  const jobId = req.query.jobId;
-  if (!jobId) return res.status(400).json({ error: "Missing jobId" });
-
-  const now    = Date.now();
-  const bucket = active[jobId] || {};
-
-  // expire stale
-  for (const [uid, info] of Object.entries(bucket)) {
-    if (now - info.lastTime > TIMEOUT) {
-      delete bucket[uid];
+// Endpoint for the script to "check in" when it starts
+app.post('/api/session/start', (req, res) => {
+    const { userId, userNote } = req.body;
+    if (!userId) {
+        return res.status(400).send({ message: 'userId is required' });
     }
-  }
 
-  const users = Object.entries(bucket).map(([uid, info]) => ({
-    userId:   uid,
-    username: info.username,
-    jobId
-  }));
+    console.log(`Session started for: ${userId}`);
+    activeSessions[userId] = {
+        userNote: userNote || 'No note provided',
+        startTime: Math.floor(Date.now() / 1000), // Current time in seconds
+        lastHeartbeat: Math.floor(Date.now() / 1000)
+    };
 
-  res.json({
-    count: users.length,
-    users
-  });
+    res.status(200).send({ message: 'Session started successfully' });
 });
 
-// — Global GET —
-// Returns { count, users: [ { userId, username, jobId }… ] }
-app.get("/beacon/all", (req, res) => {
-  const now = Date.now();
-  const all = [];
-
-  for (const [jobId, bucket] of Object.entries(active)) {
-    for (const [uid, info] of Object.entries(bucket)) {
-      if (now - info.lastTime <= TIMEOUT) {
-        all.push({
-          userId:   uid,
-          username: info.username,
-          jobId
-        });
-      }
+// Endpoint for the script to send its periodic "I'm still here" signal
+app.post('/api/session/heartbeat', (req, res) => {
+    const { userId } = req.body;
+    if (!userId) {
+        return res.status(400).send({ message: 'userId is required' });
     }
-  }
 
-  res.json({
-    count: all.length,
-    users: all
-  });
+    if (activeSessions[userId]) {
+        // console.log(`Heartbeat received for: ${userId}`); // Optional: can be noisy
+        activeSessions[userId].lastHeartbeat = Math.floor(Date.now() / 1000);
+        res.status(200).send({ message: 'Heartbeat received' });
+    } else {
+        // If we get a heartbeat for a user not in our list, treat it as a new session start
+        console.log(`Heartbeat for unknown session, starting new one for: ${userId}`);
+        activeSessions[userId] = {
+            userNote: 'N/A (reconnected)',
+            startTime: Math.floor(Date.now() / 1000),
+            lastHeartbeat: Math.floor(Date.now() / 1000)
+        };
+        res.status(200).send({ message: 'Session started on heartbeat' });
+    }
 });
 
+// Endpoint for your admin GUI to get the list of currently active users
+app.get('/api/sessions/active', (req, res) => {
+    const now = Math.floor(Date.now() / 1000);
+    const activeUsers = [];
+
+    for (const userId in activeSessions) {
+        const session = activeSessions[userId];
+        // If the last heartbeat was within the last 3 minutes (180 seconds), consider them active.
+        if (now - session.lastHeartbeat <= 180) {
+            activeUsers.push({
+                userId: userId,
+                ...session
+            });
+        } else {
+            // Clean up inactive sessions to save memory
+            console.log(`Session timed out for: ${userId}. Removing.`);
+            delete activeSessions[userId];
+        }
+    }
+    
+    console.log(`Returning ${activeUsers.length} active users.`);
+    res.status(200).json(activeUsers);
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Chat & Beacon server listening on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
