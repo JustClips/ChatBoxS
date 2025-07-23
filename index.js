@@ -7,6 +7,7 @@ app.use(express.json());
 
 const activeSessions = {};
 let kickRequests = []; // Store kick requests for remote kicking
+let warnRequests = []; // Store warn requests for remote warnings
 
 // Accepts 'placeId', 'username', 'jobId'
 app.post('/api/session/start', (req, res) => {
@@ -78,6 +79,34 @@ app.post('/api/clear-kick', (req, res) => {
     if (!username) return res.status(400).send({ message: 'Username required' });
     kickRequests = kickRequests.filter(k => k.username !== username);
     res.status(200).send({ message: 'Kick cleared' });
+});
+
+// -------- Remote Warn System --------
+
+// Add a warn request
+app.post('/api/request-warn', (req, res) => {
+    const { username, message } = req.body;
+    if (!username || !message) {
+        return res.status(400).send({ message: 'Username and message required' });
+    }
+    // Remove existing warn for this user if any
+    warnRequests = warnRequests.filter(w => w.username !== username);
+    warnRequests.push({ username, message });
+    console.log(`Warn requested for ${username}: ${message}`);
+    res.status(200).send({ message: 'Warn request queued' });
+});
+
+// Get all warn requests
+app.get('/api/warn-requests', (req, res) => {
+    res.status(200).json(warnRequests);
+});
+
+// Clear a user's warn request (after they are warned)
+app.post('/api/clear-warn', (req, res) => {
+    const { username } = req.body;
+    if (!username) return res.status(400).send({ message: 'Username required' });
+    warnRequests = warnRequests.filter(w => w.username !== username);
+    res.status(200).send({ message: 'Warn cleared' });
 });
 
 const PORT = process.env.PORT || 3000;
