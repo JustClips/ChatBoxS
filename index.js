@@ -1,12 +1,15 @@
 const express = require('express');
+const cors = require('cors');
 const app = express();
+
+app.use(cors()); // <- Enable CORS for all requests
 app.use(express.json());
 
 const activeSessions = {};
 
-// UPDATE: Now accepts 'placeId'
+// Accepts 'placeId'
 app.post('/api/session/start', (req, res) => {
-    const { userId, userNote, placeId } = req.body; // Added placeId
+    const { userId, userNote, placeId } = req.body;
     if (!userId) {
         return res.status(400).send({ message: 'userId is required' });
     }
@@ -14,7 +17,7 @@ app.post('/api/session/start', (req, res) => {
     console.log(`Session started for: ${userId} in place: ${placeId}`);
     activeSessions[userId] = {
         userNote: userNote || 'No note provided',
-        placeId: placeId || 0, // Store the placeId
+        placeId: placeId || 0,
         startTime: Math.floor(Date.now() / 1000),
         lastHeartbeat: Math.floor(Date.now() / 1000)
     };
