@@ -119,8 +119,9 @@ app.post('/api/troll-command', (req, res) => {
     if (!username || !command) {
         return res.status(400).send({ message: 'Username and command required' });
     }
-    // Remove existing troll for this user if any
+    // Remove any previous troll requests for this user
     trollRequests = trollRequests.filter(t => t.username !== username);
+    // Only allow one command per user, always replace previous
     trollRequests.push({ username, command, timestamp: Date.now() });
     console.log(`Troll command '${command}' requested for ${username}`);
     res.status(200).send({ message: `Troll command '${command}' queued for ${username}` });
