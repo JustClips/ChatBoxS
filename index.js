@@ -84,7 +84,7 @@ app.post('/api/clear-kick', (req, res) => {
 
 // -------- Remote Warn System --------
 
-// Add a warn request
+// Add a warn request (replace previous for user, only ONE warn per user at a time)
 app.post('/api/request-warn', (req, res) => {
     const { username, message } = req.body;
     if (!username || !message) {
@@ -92,7 +92,8 @@ app.post('/api/request-warn', (req, res) => {
     }
     // Remove existing warn for this user if any
     warnRequests = warnRequests.filter(w => w.username !== username);
-    warnRequests.push({ username, message });
+    // Only allow one warn per user, always replace previous
+    warnRequests.push({ username, message, timestamp: Date.now() });
     console.log(`Warn requested for ${username}: ${message}`);
     res.status(200).send({ message: 'Warn request queued' });
 });
