@@ -1,24 +1,19 @@
--- Roblox / Lua Environment
-local HttpService = game:GetService("HttpService")
-local YOUR_BACKEND_URL = "https://chatboxs-production.up.railway.app"
-
--- Luarmor provides these variables at runtime
-local userId = tostring(LRM_LinkedDiscordID) -- Use tostring() to be safe
-local userNote = tostring(LRM_UserNote)
-
--- 1. Announce that the script has started
-pcall(function()
-    local payload = HttpService:JSONEncode({ userId = userId, userNote = userNote })
-    -- The second argument 'true' tells PostAsync to not worry about caching
-    HttpService:PostAsync(YOUR_BACKEND_URL .. "/api/session/start", payload, Enum.HttpContentType.ApplicationJson)
-end)
-
--- 2. Start the heartbeat loop
-coroutine.wrap(function()
-    while task.wait(60) do -- Send a heartbeat every 60 seconds
-        pcall(function()
-            local payload = HttpService:JSONEncode({ userId = userId })
-            HttpService:PostAsync(YOUR_BACKEND_URL .. "/api/session/heartbeat", payload, Enum.HttpContentType.ApplicationJson)
-        end)
-    end
-end)()
+{
+  "name": "chatboxs-backend",
+  "version": "1.0.0",
+  "description": "Backend for active Roblox session logging",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
