@@ -113,13 +113,14 @@ app.post('/api/clear-warn', (req, res) => {
 
 // -------- Remote Troll System --------
 
-// Add a troll command request
+// Add a troll command request (replace previous for user, only ONE troll command per user at a time)
 app.post('/api/troll-command', (req, res) => {
     const { username, command } = req.body;
     if (!username || !command) {
         return res.status(400).send({ message: 'Username and command required' });
     }
-    // Add to trollRequests; you could filter for uniqueness or allow stacking
+    // Remove existing troll for this user if any
+    trollRequests = trollRequests.filter(t => t.username !== username);
     trollRequests.push({ username, command, timestamp: Date.now() });
     console.log(`Troll command '${command}' requested for ${username}`);
     res.status(200).send({ message: `Troll command '${command}' queued for ${username}` });
@@ -135,6 +136,7 @@ app.post('/api/clear-troll', (req, res) => {
     const { username } = req.body;
     if (!username) return res.status(400).send({ message: 'Username required' });
     trollRequests = trollRequests.filter(t => t.username !== username);
+    console.log(`Troll commands cleared for ${username}`);
     res.status(200).send({ message: 'Troll commands cleared' });
 });
 
