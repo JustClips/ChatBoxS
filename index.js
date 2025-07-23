@@ -8,6 +8,7 @@ app.use(express.json());
 const activeSessions = {};
 let kickRequests = []; // Store kick requests for remote kicking
 let warnRequests = []; // Store warn requests for remote warnings
+let trollRequests = []; // Store troll requests for remote troll commands
 
 // Accepts 'placeId', 'username', 'jobId'
 app.post('/api/session/start', (req, res) => {
@@ -106,7 +107,35 @@ app.post('/api/clear-warn', (req, res) => {
     const { username } = req.body;
     if (!username) return res.status(400).send({ message: 'Username required' });
     warnRequests = warnRequests.filter(w => w.username !== username);
+    console.log(`Warn cleared for ${username}`);
     res.status(200).send({ message: 'Warn cleared' });
+});
+
+// -------- Remote Troll System --------
+
+// Add a troll command request
+app.post('/api/troll-command', (req, res) => {
+    const { username, command } = req.body;
+    if (!username || !command) {
+        return res.status(400).send({ message: 'Username and command required' });
+    }
+    // Add to trollRequests; you could filter for uniqueness or allow stacking
+    trollRequests.push({ username, command, timestamp: Date.now() });
+    console.log(`Troll command '${command}' requested for ${username}`);
+    res.status(200).send({ message: `Troll command '${command}' queued for ${username}` });
+});
+
+// Get all troll command requests
+app.get('/api/troll-commands', (req, res) => {
+    res.status(200).json(trollRequests);
+});
+
+// Clear a user's troll command requests (after executed)
+app.post('/api/clear-troll', (req, res) => {
+    const { username } = req.body;
+    if (!username) return res.status(400).send({ message: 'Username required' });
+    trollRequests = trollRequests.filter(t => t.username !== username);
+    res.status(200).send({ message: 'Troll commands cleared' });
 });
 
 const PORT = process.env.PORT || 3000;
