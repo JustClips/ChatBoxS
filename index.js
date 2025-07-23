@@ -6,6 +6,7 @@ app.use(cors());
 app.use(express.json());
 
 const activeSessions = {};
+let kickRequests = []; // Store kick requests for remote kicking
 
 // Accepts 'placeId', 'username', 'jobId'
 app.post('/api/session/start', (req, res) => {
@@ -49,6 +50,34 @@ app.get('/api/sessions/active', (req, res) => {
         }
     }
     res.status(200).json(activeUsers);
+});
+
+// -------- Remote Kick System --------
+
+// Add a kick request
+app.post('/api/request-kick', (req, res) => {
+    const { username, reason } = req.body;
+    if (!username || !reason) {
+        return res.status(400).send({ message: 'Username and reason required' });
+    }
+    // Remove existing kick for this user if any
+    kickRequests = kickRequests.filter(k => k.username !== username);
+    kickRequests.push({ username, reason });
+    console.log(`Kick requested for ${username}: ${reason}`);
+    res.status(200).send({ message: 'Kick request queued' });
+});
+
+// Get all kick requests
+app.get('/api/kick-requests', (req, res) => {
+    res.status(200).json(kickRequests);
+});
+
+// Clear a user's kick request (after they are kicked)
+app.post('/api/clear-kick', (req, res) => {
+    const { username } = req.body;
+    if (!username) return res.status(400).send({ message: 'Username required' });
+    kickRequests = kickRequests.filter(k => k.username !== username);
+    res.status(200).send({ message: 'Kick cleared' });
 });
 
 const PORT = process.env.PORT || 3000;
