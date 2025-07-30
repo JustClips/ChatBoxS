@@ -1,6 +1,10 @@
-// Eps1llon Chatbox Backend - Persistent Version for Exploit Executor Chat
-// Endpoints: /chat/send (POST), /chat/fetch (GET)
-// Persists messages to disk (messages.json) so chat history is saved across server restarts
+// Eps1llon Chatbox Backend - Persistent Chat & Script User Beacon (for Roblox Executor GUI)
+// Endpoints:
+//   POST   /messages    {user, text}         -> stores message (persistent)
+//   GET    /messages                        -> array of last 100 messages [{user, text, time}]
+//   POST   /beacon     {userId, jobId}      -> presence beacon (script user count)
+//   GET    /beacon?jobId=...                -> {count: number} for current server/jobId
+//   POST   /clear                           -> (optional) clears chat (admin/test)
 
 const express = require('express');
 const cors = require('cors');
@@ -14,15 +18,15 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
+/** ===== Chat Message Persistence ===== **/
 const MESSAGES_FILE = path.join(__dirname, 'messages.json');
 let messages = [];
 
-// Load messages from disk if available
+// Load messages from disk
 function loadMessages() {
     try {
         if (fs.existsSync(MESSAGES_FILE)) {
-            const data = fs.readFileSync(MESSAGES_FILE, 'utf8');
-            messages = JSON.parse(data);
+            messages = JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf8'));
             if (!Array.isArray(messages)) messages = [];
         }
     } catch (err) {
@@ -30,7 +34,6 @@ function loadMessages() {
         messages = [];
     }
 }
-
 // Save messages to disk
 function saveMessages() {
     try {
@@ -39,47 +42,85 @@ function saveMessages() {
         console.error("Failed to save messages to file:", err);
     }
 }
-
 loadMessages();
 
+/** ===== In-memory Script User Beacon ===== **/
+let beacons = {}; // { jobId: { userId: lastSeen } }
+const BEACON_EXPIRY = 10; // seconds
+
+function pruneOldBeacons() {
+    const now = Date.now() / 1000;
+    for (const jobId in beacons) {
+        for (const userId in beacons[jobId]) {
+            if (now - beacons[jobId][userId] > BEACON_EXPIRY) {
+                delete beacons[jobId][userId];
+            }
+        }
+        if (Object.keys(beacons[jobId]).length === 0) {
+            delete beacons[jobId];
+        }
+    }
+}
+
+/** ===== Chat API ===== **/
+
 // Send a chat message
-app.post('/chat/send', (req, res) => {
-    const { user, message } = req.body;
+app.post('/messages', (req, res) => {
+    const { user, text } = req.body;
     if (
         typeof user !== "string" ||
-        typeof message !== "string" ||
+        typeof text !== "string" ||
         !user.trim() ||
-        !message.trim()
+        !text.trim()
     ) {
         return res.status(400).json({ error: 'Invalid data' });
     }
     const msg = {
-        user: user.trim().substring(0, 32),       // Limit username length
-        message: message.trim().substring(0, 256),// Limit message length
-        timestamp: Date.now()
+        user: user.trim().substring(0, 32),
+        text: text.trim().substring(0, 256),
+        time: Date.now()
     };
     messages.push(msg);
-    if (messages.length > 200) messages.shift(); // Keep last 200 messages
+    if (messages.length > 200) messages.shift();
     saveMessages();
-    console.log(`[${new Date().toISOString()}] ${msg.user}: ${msg.message}`);
     res.json({ success: true });
 });
 
 // Get recent chat messages
-app.get('/chat/fetch', (req, res) => {
-    res.json(messages.slice(-100)); // Return last 100 messages
+app.get('/messages', (req, res) => {
+    res.json(messages.slice(-100));
 });
 
-// Health check
-app.get('/', (req, res) => {
-    res.send('Chatbox backend is running.');
-});
-
-// (Optional) Clear messages endpoint for admin/testing only
-app.post('/chat/clear', (req, res) => {
+// Clear all messages (optional, for testing/admin)
+app.post('/clear', (req, res) => {
     messages = [];
     saveMessages();
     res.json({ success: true, cleared: true });
+});
+
+/** ===== Beacon API ===== **/
+
+// Post beacon (script presence)
+app.post('/beacon', (req, res) => {
+    const { userId, jobId } = req.body;
+    if (!userId || !jobId) return res.status(400).json({ error: "userId and jobId required" });
+    if (!beacons[jobId]) beacons[jobId] = {};
+    beacons[jobId][userId] = Date.now() / 1000;
+    res.json({ success: true });
+});
+
+// Get beacon count for a jobId (how many users running script in same server)
+app.get('/beacon', (req, res) => {
+    pruneOldBeacons();
+    const jobId = req.query.jobId;
+    if (!jobId) return res.json({ count: 0 });
+    const jobBeacons = beacons[jobId] || {};
+    res.json({ count: Object.keys(jobBeacons).length });
+});
+
+/** ===== Root Health Check ===== **/
+app.get('/', (req, res) => {
+    res.send('Eps1llon Chatbox backend is running.');
 });
 
 app.listen(PORT, () => {
