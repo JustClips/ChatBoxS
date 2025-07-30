@@ -54,12 +54,18 @@ app.get('/api/sessions/active', (req, res) => {
 // Send a chat message (expects: username, jobId, message)
 app.post('/api/chat/send', (req, res) => {
     const { username, jobId, message } = req.body;
-    if (!username || !message) {
-        return res.status(400).send({ message: 'username and message are required' });
+    if (!username || typeof username !== "string" || username.trim() === "") {
+        return res.status(400).send({ message: 'username is required' });
+    }
+    if (!message || typeof message !== "string" || message.trim() === "") {
+        return res.status(400).send({ message: 'message is required' });
+    }
+    if (!activeSessions[username]) {
+        return res.status(403).send({ message: 'Session not found. Please start a session first.' });
     }
     const msgObj = {
         username,
-        jobId: jobId || null,
+        jobId: jobId || activeSessions[username].jobId || null,
         message,
         timestamp: Date.now()
     };
