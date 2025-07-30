@@ -16,6 +16,8 @@ app.post('/chat/send', (req, res) => {
     const msg = { user, message, timestamp: Date.now() };
     messages.push(msg);
     if (messages.length > 100) messages.shift();
+    console.log("New message:", msg);
+    console.log("All messages:", messages);
     res.json({ success: true });
 });
 
