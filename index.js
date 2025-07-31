@@ -12,50 +12,6 @@ app.use(express.json());
 // In-memory stores:
 let messages = [];      // chat log (up to 200 messages)
 const active = {};      // { [jobId]: { [userId]: { username, placeId, lastTime } } }
-const placeToUniverse = {};
-const placeNames = {};
-
-// Common headers for Roblox API requests
-const robloxHeaders = {
-  Accept: "application/json",
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-};
-
-// Async function to get universeId
-async function getUniverseId(placeId) {
-  if (placeToUniverse[placeId]) return placeToUniverse[placeId];
-  try {
-    const url = `https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`;
-    const response = await fetch(url, { headers: robloxHeaders });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    const uni = data[0]?.universeId;
-    if (uni) placeToUniverse[placeId] = uni;
-    return uni;
-  } catch (e) {
-    console.error(`Error fetching universeId for ${placeId}: ${e.message}`);
-    return null;
-  }
-}
-
-// Async function to get place name
-async function getPlaceName(placeId) {
-  if (placeNames[placeId]) return placeNames[placeId];
-  try {
-    const uni = await getUniverseId(placeId);
-    if (!uni) throw new Error('No universeId');
-    const url = `https://games.roblox.com/v1/games?universeIds=${uni}`;
-    const response = await fetch(url, { headers: robloxHeaders });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    const name = data.data?.[0]?.name;
-    if (name) placeNames[placeId] = name;
-    return name || "Unknown";
-  } catch (e) {
-    console.error(`Error fetching placeName for ${placeId}: ${e.message}`);
-    return "Unknown";
-  }
-}
 
 // — Chat endpoints —
 
@@ -94,8 +50,8 @@ app.post("/beacon", (req, res) => {
 });
 
 // — Per-server GET —
-// Returns { count, users: [ { userId, username, jobId, placeId, gameName }… ] }
-app.get("/beacon", async (req, res) => {
+// Returns { count, users: [ { userId, username, jobId, placeId }… ] }
+app.get("/beacon", (req, res) => {
   const jobId = req.query.jobId;
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
 
@@ -109,17 +65,12 @@ app.get("/beacon", async (req, res) => {
     }
   }
 
-  const users = [];
-  for (const [uid, info] of Object.entries(bucket)) {
-    const gameName = await getPlaceName(info.placeId);
-    users.push({
-      userId:   uid,
-      username: info.username,
-      jobId,
-      placeId: info.placeId,
-      gameName
-    });
-  }
+  const users = Object.entries(bucket).map(([uid, info]) => ({
+    userId:   uid,
+    username: info.username,
+    jobId,
+    placeId: info.placeId
+  }));
 
   res.json({
     count: users.length,
@@ -128,8 +79,8 @@ app.get("/beacon", async (req, res) => {
 });
 
 // — Global GET —
-// Returns { count, users: [ { userId, username, jobId, placeId, gameName }… ] }
-app.get("/beacon/all", async (req, res) => {
+// Returns { count, users: [ { userId, username, jobId, placeId }… ] }
+app.get("/beacon/all", (req, res) => {
   const now = Date.now();
   const all = [];
 
@@ -139,13 +90,11 @@ app.get("/beacon/all", async (req, res) => {
       if (now - info.lastTime > TIMEOUT) {
         toDelete.push(uid);
       } else {
-        const gameName = await getPlaceName(info.placeId);
         all.push({
           userId:   uid,
           username: info.username,
           jobId,
-          placeId: info.placeId,
-          gameName
+          placeId: info.placeId
         });
       }
     }
@@ -166,35 +115,33 @@ app.get("/beacon/all", async (req, res) => {
 // — Proxy for Roblox APIs to bypass in-game restrictions —
 
 // GET universeId from placeId
-app.get("/proxy/universe", async (req, res) => {
+app.get("/proxy/universe", (req, res) => {
   const placeId = req.query.placeId;
   if (!placeId) return res.status(400).json({ error: "Missing placeId" });
 
-  try {
-    const url = `https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`;
-    const response = await fetch(url, { headers: robloxHeaders });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const url = `https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`;
+  fetch(url, { headers: { Accept: "application/json" } })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(data => res.json(data))
+    .catch(err => res.status(500).json({ error: err.message }));
 });
 
 // GET game details from universeId
-app.get("/proxy/game", async (req, res) => {
+app.get("/proxy/game", (req, res) => {
   const universeId = req.query.universeId;
   if (!universeId) return res.status(400).json({ error: "Missing universeId" });
 
-  try {
-    const url = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
-    const response = await fetch(url, { headers: robloxHeaders });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const url = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
+  fetch(url, { headers: { Accept: "application/json" } })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(data => res.json(data))
+    .catch(err => res.status(500).json({ error: err.message }));
 });
 
 // Health check endpoint
