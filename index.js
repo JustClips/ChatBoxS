@@ -10,7 +10,7 @@ app.use(express.json());
 
 // In-memory stores:
 let messages = [];      // chat log (up to 200 messages)
-const active = {};      // { [jobId]: { [userId]: { username, lastTime } } }
+const active = {};      // { [jobId]: { [userId]: { username, placeId, lastTime } } }
 
 // — Chat endpoints —
 
@@ -33,14 +33,15 @@ app.post("/messages", (req, res) => {
 // — Beacon POST —
 // Record heartbeat for a user in a server (with username)
 app.post("/beacon", (req, res) => {
-  const { userId, username, jobId } = req.body;
-  if (!userId || !username || !jobId) {
-    return res.status(400).json({ error: "Must include userId, username, jobId" });
+  const { userId, username, jobId, placeId } = req.body;
+  if (!userId || !username || !jobId || !placeId) {
+    return res.status(400).json({ error: "Must include userId, username, jobId, placeId" });
   }
 
   if (!active[jobId]) active[jobId] = {};
   active[jobId][userId] = {
     username,
+    placeId,
     lastTime: Date.now()
   };
 
@@ -48,7 +49,7 @@ app.post("/beacon", (req, res) => {
 });
 
 // — Per-server GET —
-// Returns { count, users: [ { userId, username, jobId }… ] }
+// Returns { count, users: [ { userId, username, jobId, placeId }… ] }
 app.get("/beacon", (req, res) => {
   const jobId = req.query.jobId;
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
@@ -66,7 +67,8 @@ app.get("/beacon", (req, res) => {
   const users = Object.entries(bucket).map(([uid, info]) => ({
     userId:   uid,
     username: info.username,
-    jobId
+    jobId,
+    placeId: info.placeId
   }));
 
   res.json({
@@ -76,20 +78,30 @@ app.get("/beacon", (req, res) => {
 });
 
 // — Global GET —
-// Returns { count, users: [ { userId, username, jobId }… ] }
+// Returns { count, users: [ { userId, username, jobId, placeId }… ] }
 app.get("/beacon/all", (req, res) => {
   const now = Date.now();
   const all = [];
 
   for (const [jobId, bucket] of Object.entries(active)) {
+    const toDelete = [];
     for (const [uid, info] of Object.entries(bucket)) {
-      if (now - info.lastTime <= TIMEOUT) {
+      if (now - info.lastTime > TIMEOUT) {
+        toDelete.push(uid);
+      } else {
         all.push({
           userId:   uid,
           username: info.username,
-          jobId
+          jobId,
+          placeId: info.placeId
         });
       }
+    }
+    for (const uid of toDelete) {
+      delete bucket[uid];
+    }
+    if (Object.keys(bucket).length === 0) {
+      delete active[jobId];
     }
   }
 
