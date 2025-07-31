@@ -1,5 +1,6 @@
 const express = require("express");
 const cors    = require("cors");
+const fetch   = require("node-fetch");
 
 const app      = express();
 const PORT     = process.env.PORT || 8080;
@@ -109,6 +110,38 @@ app.get("/beacon/all", (req, res) => {
     count: all.length,
     users: all
   });
+});
+
+// — Proxy for Roblox APIs to bypass in-game restrictions —
+
+// GET universeId from placeId
+app.get("/proxy/universe", (req, res) => {
+  const placeId = req.query.placeId;
+  if (!placeId) return res.status(400).json({ error: "Missing placeId" });
+
+  const url = `https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`;
+  fetch(url, { headers: { Accept: "application/json" } })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(data => res.json(data))
+    .catch(err => res.status(500).json({ error: err.message }));
+});
+
+// GET game details from universeId
+app.get("/proxy/game", (req, res) => {
+  const universeId = req.query.universeId;
+  if (!universeId) return res.status(400).json({ error: "Missing universeId" });
+
+  const url = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
+  fetch(url, { headers: { Accept: "application/json" } })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(data => res.json(data))
+    .catch(err => res.status(500).json({ error: err.message }));
 });
 
 // Health check endpoint
