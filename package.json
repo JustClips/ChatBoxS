@@ -1,20 +1,12 @@
 {
-  "name": "chatboxs-backend",
+  "name": "discord-account-generator-bot",
   "version": "1.0.0",
-  "description": "Backend for active Roblox session logging",
+  "description": "A Discord bot that generates accounts, 1 per user, using Railway environment variables.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "node-fetch": "^3.3.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+    "discord.js": "^14.0.0"
+  }
 }
