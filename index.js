@@ -1,79 +1,81 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { 
+  Client, GatewayIntentBits, REST, Routes, 
+  SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder 
+} = require('discord.js');
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds
-  ]
-});
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// In-memory map to track which user got which account (resets on bot restart)
+// In-memory for user-account assignment (resets on restart)
 const userAccountMap = {};
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   const CLIENT_ID = client.user.id;
 
-  // Register /generate command
+  // Register /embed command
   const commands = [
     new SlashCommandBuilder()
-      .setName('generate')
-      .setDescription('Get a random account from the database (1 per user).')
+      .setName('embed')
+      .setDescription('Send the account generator embed to this channel.')
       .toJSON()
   ];
-
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(
-    Routes.applicationCommands(CLIENT_ID),
-    { body: commands }
-  );
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
   console.log('Slash command registered.');
 });
 
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+  // Handle /embed command
+  if (interaction.isChatInputCommand() && interaction.commandName === 'embed') {
+    const embed = new EmbedBuilder()
+      .setTitle('Account Generator')
+      .setDescription('To generate an account, click the "Generate Account" button below. You will receive your account via a private reply!')
+      .setColor(0x5865F2);
 
-  if (interaction.commandName === 'generate') {
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('generate_account')
+          .setLabel('Generate Account')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+    await interaction.reply({ embeds: [embed], components: [row] });
+  }
+
+  // Handle button
+  if (interaction.isButton() && interaction.customId === 'generate_account') {
     const userId = interaction.user.id;
 
-    // Check if user already claimed an account
-    if (userAccountMap[userId]) {
-      try {
-        await interaction.user.send(`You have already received an account: \`${userAccountMap[userId]}\``);
-        await interaction.reply({ content: 'You have already been sent an account. Check your DMs!', ephemeral: true });
-      } catch {
-        // Fallback to ephemeral reply if DM fails
-        await interaction.reply({ content: `You have already received an account: \`${userAccountMap[userId]}\` (could not DM, check your privacy settings).`, ephemeral: true });
-      }
-      return;
-    }
-
-    // Load accounts from environment variable
+    // Load accounts from env
     const accountsRaw = process.env.ACCOUNTS || '';
-    let accounts = accountsRaw.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const accounts = accountsRaw.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-    // Remove already assigned accounts
     const assignedAccounts = Object.values(userAccountMap);
     const availableAccounts = accounts.filter(acc => !assignedAccounts.includes(acc));
+
+    // Already claimed?
+    if (userAccountMap[userId]) {
+      await interaction.reply({ 
+        content: `You have already received an account: \`${userAccountMap[userId]}\``, 
+        ephemeral: true 
+      });
+      return;
+    }
 
     if (!availableAccounts.length) {
       await interaction.reply({ content: 'No accounts available.', ephemeral: true });
       return;
     }
 
-    // Pick a random account
+    // Assign account
     const randomAccount = availableAccounts[Math.floor(Math.random() * availableAccounts.length)];
     userAccountMap[userId] = randomAccount;
 
-    try {
-      await interaction.user.send(`Your generated account: \`${randomAccount}\``);
-      await interaction.reply({ content: 'Account sent to your DMs!', ephemeral: true });
-    } catch {
-      // Fallback: send in ephemeral reply if DM fails
-      await interaction.reply({
-        content: `Your generated account: \`${randomAccount}\` (could not DM, check your privacy settings).`,
-        ephemeral: true
-      });
-    }
+    await interaction.reply({
+      content: `Your generated account: \`${randomAccount}\``,
+      ephemeral: true
+    });
   }
 });
 
