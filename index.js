@@ -41,7 +41,8 @@ client.on('interactionCreate', async interaction => {
         await interaction.user.send(`You have already received an account: \`${userAccountMap[userId]}\``);
         await interaction.reply({ content: 'You have already been sent an account. Check your DMs!', ephemeral: true });
       } catch {
-        await interaction.reply({ content: 'Unable to send you a DM. Please check your privacy settings.', ephemeral: true });
+        // Fallback to ephemeral reply if DM fails
+        await interaction.reply({ content: `You have already received an account: \`${userAccountMap[userId]}\` (could not DM, check your privacy settings).`, ephemeral: true });
       }
       return;
     }
@@ -67,7 +68,11 @@ client.on('interactionCreate', async interaction => {
       await interaction.user.send(`Your generated account: \`${randomAccount}\``);
       await interaction.reply({ content: 'Account sent to your DMs!', ephemeral: true });
     } catch {
-      await interaction.reply({ content: 'Unable to send you a DM. Please check your privacy settings.', ephemeral: true });
+      // Fallback: send in ephemeral reply if DM fails
+      await interaction.reply({
+        content: `Your generated account: \`${randomAccount}\` (could not DM, check your privacy settings).`,
+        ephemeral: true
+      });
     }
   }
 });
