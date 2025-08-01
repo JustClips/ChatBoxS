@@ -1,152 +1,75 @@
-const express = require("express");
-const cors    = require("cors");
-// REMOVED: const fetch   = require("node-fetch");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 
-const app      = express();
-const PORT     = process.env.PORT || 8080;
-const TIMEOUT  = 15_000; // 15 seconds
-
-app.use(cors());
-app.use(express.json());
-
-// In-memory stores:
-let messages = [];      // chat log (up to 200 messages)
-const active = {};      // { [jobId]: { [userId]: { username, placeId, lastTime } } }
-
-// — Chat endpoints —
-
-// GET last 200 messages
-app.get("/messages", (req, res) => {
-  res.json(messages);
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds
+  ]
 });
 
-// POST a new message
-app.post("/messages", (req, res) => {
-  const { user, text } = req.body;
-  if (typeof user !== "string" || typeof text !== "string") {
-    return res.status(400).json({ error: "Invalid user/text" });
-  }
-  messages.push({ user, text, time: Date.now() });
-  if (messages.length > 200) messages.shift();
-  res.json({ success: true });
+// In-memory map to track which user got which account (resets on bot restart)
+const userAccountMap = {};
+
+client.once('ready', async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  const CLIENT_ID = client.user.id;
+
+  // Register /generate command
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('generate')
+      .setDescription('Get a random account from the database (1 per user).')
+      .toJSON()
+  ];
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  await rest.put(
+    Routes.applicationCommands(CLIENT_ID),
+    { body: commands }
+  );
+  console.log('Slash command registered.');
 });
 
-// — Beacon POST —
-// Record heartbeat for a user in a server (with username)
-app.post("/beacon", (req, res) => {
-  const { userId, username, jobId, placeId } = req.body;
-  if (!userId || !username || !jobId || !placeId) {
-    return res.status(400).json({ error: "Must include userId, username, jobId, placeId" });
-  }
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
 
-  if (!active[jobId]) active[jobId] = {};
-  active[jobId][userId] = {
-    username,
-    placeId,
-    lastTime: Date.now()
-  };
+  if (interaction.commandName === 'generate') {
+    const userId = interaction.user.id;
 
-  res.json({ success: true });
-});
-
-// — Per-server GET —
-// Returns { count, users: [ { userId, username, jobId, placeId }… ] }
-app.get("/beacon", (req, res) => {
-  const jobId = req.query.jobId;
-  if (!jobId) return res.status(400).json({ error: "Missing jobId" });
-
-  const now    = Date.now();
-  const bucket = active[jobId] || {};
-
-  // expire stale
-  for (const [uid, info] of Object.entries(bucket)) {
-    if (now - info.lastTime > TIMEOUT) {
-      delete bucket[uid];
-    }
-  }
-
-  const users = Object.entries(bucket).map(([uid, info]) => ({
-    userId:   uid,
-    username: info.username,
-    jobId,
-    placeId: info.placeId
-  }));
-
-  res.json({
-    count: users.length,
-    users
-  });
-});
-
-// — Global GET —
-// Returns { count, users: [ { userId, username, jobId, placeId }… ] }
-app.get("/beacon/all", (req, res) => {
-  const now = Date.now();
-  const all = [];
-
-  for (const [jobId, bucket] of Object.entries(active)) {
-    const toDelete = [];
-    for (const [uid, info] of Object.entries(bucket)) {
-      if (now - info.lastTime > TIMEOUT) {
-        toDelete.push(uid);
-      } else {
-        all.push({
-          userId:   uid,
-          username: info.username,
-          jobId,
-          placeId: info.placeId
-        });
+    // Check if user already claimed an account
+    if (userAccountMap[userId]) {
+      try {
+        await interaction.user.send(`You have already received an account: \`${userAccountMap[userId]}\``);
+        await interaction.reply({ content: 'You have already been sent an account. Check your DMs!', ephemeral: true });
+      } catch {
+        await interaction.reply({ content: 'Unable to send you a DM. Please check your privacy settings.', ephemeral: true });
       }
+      return;
     }
-    for (const uid of toDelete) {
-      delete bucket[uid];
+
+    // Load accounts from environment variable
+    const accountsRaw = process.env.ACCOUNTS || '';
+    let accounts = accountsRaw.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+    // Remove already assigned accounts
+    const assignedAccounts = Object.values(userAccountMap);
+    const availableAccounts = accounts.filter(acc => !assignedAccounts.includes(acc));
+
+    if (!availableAccounts.length) {
+      await interaction.reply({ content: 'No accounts available.', ephemeral: true });
+      return;
     }
-    if (Object.keys(bucket).length === 0) {
-      delete active[jobId];
+
+    // Pick a random account
+    const randomAccount = availableAccounts[Math.floor(Math.random() * availableAccounts.length)];
+    userAccountMap[userId] = randomAccount;
+
+    try {
+      await interaction.user.send(`Your generated account: \`${randomAccount}\``);
+      await interaction.reply({ content: 'Account sent to your DMs!', ephemeral: true });
+    } catch {
+      await interaction.reply({ content: 'Unable to send you a DM. Please check your privacy settings.', ephemeral: true });
     }
   }
-
-  res.json({
-    count: all.length,
-    users: all
-  });
 });
 
-// — Proxy for Roblox APIs to bypass in-game restrictions —
-
-// GET universeId from placeId
-app.get("/proxy/universe", (req, res) => {
-  const placeId = req.query.placeId;
-  if (!placeId) return res.status(400).json({ error: "Missing placeId" });
-
-  const url = `https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`;
-  fetch(url, { headers: { Accept: "application/json" } })
-    .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    })
-    .then(data => res.json(data))
-    .catch(err => res.status(500).json({ error: err.message }));
-});
-
-// GET game details from universeId
-app.get("/proxy/game", (req, res) => {
-  const universeId = req.query.universeId;
-  if (!universeId) return res.status(400).json({ error: "Missing universeId" });
-
-  const url = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
-  fetch(url, { headers: { Accept: "application/json" } })
-    .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    })
-    .then(data => res.json(data))
-    .catch(err => res.status(500).json({ error: err.message }));
-});
-
-// Health check endpoint
-app.get('/', (req, res) => res.send('Chat & Beacon backend running.'));
-
-app.listen(PORT, () => {
-  console.log(`Chat & Beacon server listening on port ${PORT}`);
-});
+client.login(process.env.DISCORD_TOKEN);
