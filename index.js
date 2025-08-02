@@ -1,124 +1,127 @@
-const { 
-  Client, GatewayIntentBits, REST, Routes, 
-  SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder 
-} = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, ButtonBuilder, ButtonStyle, ActionRowBuilder, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-// In-memory for user-account assignment (resets on restart)
-const userAccountMap = {};
-
-client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  const CLIENT_ID = client.user.id;
-
-  // Register /embed and /followall commands
-  const commands = [
-    new SlashCommandBuilder()
-      .setName('embed')
-      .setDescription('Send the account generator embed to this channel.'),
-    new SlashCommandBuilder()
-      .setName('followall')
-      .setDescription('All accounts will follow the specified Roblox user.')
-      .addStringOption(option =>
-        option.setName('username')
-          .setDescription('The Roblox username to follow')
-          .setRequired(true)
-      )
-  ].map(cmd => cmd.toJSON());
-
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-  console.log('Slash commands registered.');
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  partials: [Partials.Channel]
 });
 
-client.on('interactionCreate', async interaction => {
-  // Handle /embed command
-  if (interaction.isChatInputCommand() && interaction.commandName === 'embed') {
-    const embed = new EmbedBuilder()
-      .setTitle('Account Generator')
-      .setDescription('To generate an account, click the "Generate Account" button below. You will receive your account via a private reply!')
-      .setColor(0x5865F2);
+const TOKEN = process.env.DISCORD_TOKEN;
+const ROBLOX_ACCOUNTS = process.env.ROBLOX_ACCOUNTS || ''; // Should be cookies, one per line, optionally username:cookie
 
-    const row = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('generate_account')
-          .setLabel('Generate Account')
-          .setStyle(ButtonStyle.Primary)
-      );
+/**
+ * Parse accounts from env.
+ * Accepts either:
+ *  username:cookie
+ *  or just cookie per line.
+ */
+function parseAccounts(raw) {
+  return raw
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => {
+      const idx = l.indexOf(':');
+      if (idx > 0) {
+        return { username: l.slice(0, idx), cookie: l.slice(idx + 1) };
+      }
+      return { username: null, cookie: l };
+    });
+}
 
-    await interaction.reply({ embeds: [embed], components: [row] });
+const accounts = parseAccounts(ROBLOX_ACCOUNTS);
+
+/**
+ * Track which users have claimed accounts
+ * { discordUserId: { username, cookie } }
+ */
+const claimedAccounts = {};
+
+client.once(Events.ClientReady, () => {
+  console.log(`Logged in as ${client.user.tag}!`);
+});
+
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'generateaccount') {
+    // Check if user already claimed
+    if (claimedAccounts[interaction.user.id]) {
+      await interaction.reply({ content: "You've already claimed an account.", ephemeral: true });
+      return;
+    }
+
+    // Find an unclaimed account
+    const usedCookies = new Set(Object.values(claimedAccounts).map(acc => acc.cookie));
+    const available = accounts.find(acc => !usedCookies.has(acc.cookie));
+    if (!available) {
+      await interaction.reply({ content: "No accounts left to claim!", ephemeral: true });
+      return;
+    }
+    claimedAccounts[interaction.user.id] = available;
+
+    let msg = `Here is your Roblox account cookie:\n\`${available.cookie}\``;
+    if (available.username) msg = `Here is your Roblox account:\n**Username:** \`${available.username}\`\n**Cookie:** \`${available.cookie}\``;
+
+    await interaction.reply({ content: msg, ephemeral: true });
   }
 
-  // Handle /followall command
-  if (interaction.isChatInputCommand() && interaction.commandName === 'followall') {
-    const username = interaction.options.getString('username');
-    // Parse your account credentials from env
-    const accountsRaw = process.env.ROBLOX_ACCOUNTS || '';
-    const accounts = accountsRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  if (interaction.commandName === 'followall') {
+    // Simple admin check (replace with your admin logic if you want)
+    if (!interaction.member.permissions.has('Administrator')) {
+      await interaction.reply({ content: "You do not have permission to use this command.", ephemeral: true });
+      return;
+    }
 
-    await interaction.reply({ content: `Starting to follow ${username} with all accounts...`, ephemeral: true });
+    const robloxUsername = interaction.options.getString('username');
+    await interaction.reply({ content: `Trying to follow **${robloxUsername}** with all accounts...`, ephemeral: true });
 
-    // Get userId from username
+    // Get target userId
     let targetUserId;
     try {
-      targetUserId = await noblox.getIdFromUsername(username);
+      targetUserId = await noblox.getIdFromUsername(robloxUsername);
     } catch (e) {
-      await interaction.followUp({ content: `❌ Could not find user: ${username}`, ephemeral: true });
+      await interaction.editReply({ content: `User \`${robloxUsername}\` not found.` });
       return;
     }
 
-    let successCount = 0, failCount = 0;
-    for (const account of accounts) {
-      const [accUsername, accPassword] = account.split(':');
+    let success = 0, fail = 0, errors = [];
+    for (const acc of accounts) {
       try {
-        await noblox.setCookie(''); // Unset previous session
-        await noblox.login({ username: accUsername, password: accPassword });
+        await noblox.setCookie(acc.cookie);
         await noblox.follow(targetUserId);
-        successCount++;
+        success++;
       } catch (e) {
-        failCount++;
+        fail++;
+        errors.push(acc.username || acc.cookie.slice(0, 10) + '...' + `: ${e.message}`);
       }
     }
-    await interaction.followUp({ content: `Done! ✅ ${successCount} succeeded, ❌ ${failCount} failed.`, ephemeral: true });
-  }
-
-  // Handle button for account generation
-  if (interaction.isButton() && interaction.customId === 'generate_account') {
-    const userId = interaction.user.id;
-
-    // Load accounts from env (for account generation, show username:password)
-    const accountsRaw = process.env.ROBLOX_ACCOUNTS || '';
-    const accounts = accountsRaw.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-
-    const assignedAccounts = Object.values(userAccountMap);
-    const availableAccounts = accounts.filter(acc => !assignedAccounts.includes(acc));
-
-    // Already claimed?
-    if (userAccountMap[userId]) {
-      await interaction.reply({ 
-        content: `You have already received an account: \`${userAccountMap[userId]}\``, 
-        ephemeral: true 
-      });
-      return;
-    }
-
-    if (!availableAccounts.length) {
-      await interaction.reply({ content: 'No accounts available.', ephemeral: true });
-      return;
-    }
-
-    // Assign account
-    const randomAccount = availableAccounts[Math.floor(Math.random() * availableAccounts.length)];
-    userAccountMap[userId] = randomAccount;
-
-    await interaction.reply({
-      content: `Your generated account: \`${randomAccount}\``,
-      ephemeral: true
-    });
+    let result = `Done!\n✅ ${success} succeeded, ❌ ${fail} failed.`;
+    if (fail > 0) result += `\nErrors:\n${errors.slice(0, 5).join('\n')}${fail > 5 ? '\n...and more.' : ''}`;
+    await interaction.followUp({ content: result, ephemeral: true });
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// Register commands on startup
+async function registerCommands() {
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('generateaccount')
+      .setDescription('Claim an unused Roblox account (gives cookie)'),
+    new SlashCommandBuilder()
+      .setName('followall')
+      .setDescription('Follow a Roblox user with all accounts')
+      .addStringOption(opt => opt.setName('username').setDescription('Roblox username to follow').setRequired(true))
+  ].map(cmd => cmd.toJSON());
+
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  try {
+    console.log('Started refreshing application (/) commands.');
+    await rest.put(Routes.applicationCommands((await client.application.fetch()).id), { body: commands });
+    console.log('Successfully reloaded application (/) commands.');
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+client.login(TOKEN).then(registerCommands);
