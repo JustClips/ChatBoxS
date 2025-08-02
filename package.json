@@ -1,12 +1,13 @@
 {
-  "name": "discord-account-generator-bot",
+  "name": "discord-account-bot",
   "version": "1.0.0",
-  "description": "A Discord bot that generates accounts, 1 per user, using Railway environment variables.",
+  "description": "Discord bot for account generation and Roblox follow automation",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.0.0"
+    "discord.js": "^14.13.0",
+    "noblox.js": "^4.14.2"
   }
 }
