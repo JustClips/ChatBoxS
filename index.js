@@ -1,19 +1,23 @@
-const { Client, GatewayIntentBits, Partials, Events, ButtonBuilder, ButtonStyle, ActionRowBuilder, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
   partials: [Partials.Channel]
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const ROBLOX_ACCOUNTS = process.env.ROBLOX_ACCOUNTS || ''; // Should be cookies, one per line, optionally username:cookie
+const ROBLOX_ACCOUNTS = process.env.ROBLOX_ACCOUNTS || ''; // one .ROBLOSECURITY cookie per line, or username:cookie per line
 
 /**
  * Parse accounts from env.
  * Accepts either:
- *  username:cookie
- *  or just cookie per line.
+ *   username:cookie
+ *   or just cookie per line.
  */
 function parseAccounts(raw) {
   return raw
@@ -67,7 +71,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (interaction.commandName === 'followall') {
-    // Simple admin check (replace with your admin logic if you want)
+    // Simple admin check (change permission logic as needed)
     if (!interaction.member.permissions.has('Administrator')) {
       await interaction.reply({ content: "You do not have permission to use this command.", ephemeral: true });
       return;
@@ -93,7 +97,7 @@ client.on(Events.InteractionCreate, async interaction => {
         success++;
       } catch (e) {
         fail++;
-        errors.push(acc.username || acc.cookie.slice(0, 10) + '...' + `: ${e.message}`);
+        errors.push((acc.username || acc.cookie.slice(0, 10) + '...') + `: ${e.message}`);
       }
     }
     let result = `Done!\n✅ ${success} succeeded, ❌ ${fail} failed.`;
@@ -117,7 +121,8 @@ async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   try {
     console.log('Started refreshing application (/) commands.');
-    await rest.put(Routes.applicationCommands((await client.application.fetch()).id), { body: commands });
+    const app = await client.application.fetch();
+    await rest.put(Routes.applicationCommands(app.id), { body: commands });
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
     console.error(error);
