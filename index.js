@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 const noblox = require('noblox.js');
 
 const client = new Client({
@@ -71,8 +71,12 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (interaction.commandName === 'followall') {
-    // Simple admin check (change permission logic as needed)
-    if (!interaction.member.permissions.has('Administrator')) {
+    // Robust admin check for slash commands (fixes crash)
+    const isAdmin = interaction.member?.permissions instanceof PermissionsBitField
+      ? interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)
+      : interaction.member?.permissions?.has?.('Administrator');
+
+    if (!isAdmin) {
       await interaction.reply({ content: "You do not have permission to use this command.", ephemeral: true });
       return;
     }
