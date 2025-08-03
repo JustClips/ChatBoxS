@@ -71,16 +71,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (interaction.commandName === 'followall') {
-    // Check for admin permission in a safe way
-    if (
-      !interaction.guild ||
-      !interaction.member ||
-      !interaction.member.permissions ||
-      !interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)
-    ) {
-      await interaction.reply({ content: "You do not have permission to use this command.", ephemeral: true });
-      return;
-    }
+    // No admin check, everyone can use this command!
 
     const robloxUsername = interaction.options.getString('username');
     await interaction.reply({ content: `Trying to follow **${robloxUsername}** with all accounts...`, ephemeral: true });
