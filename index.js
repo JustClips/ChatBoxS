@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionType } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const client = new Client({
   intents: [
@@ -14,10 +14,7 @@ const ACCOUNTS = process.env.ACCOUNTS || ''; // username:password per line
 const COOLDOWN_HOURS = 12;
 const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
 
-/**
- * Parse accounts from env.
- * username:password per line
- */
+// Parse accounts
 function parseAccounts(raw) {
   return raw
     .split('\n')
@@ -35,15 +32,10 @@ function parseAccounts(raw) {
 
 const accounts = parseAccounts(ACCOUNTS);
 
-/**
- * Track which users have claimed accounts, and when.
- * { discordUserId: { username, password, time } }
- */
+// Track claimed accounts
 const claimedAccounts = {};
 
-/**
- * Helper to check cooldown.
- */
+// Helper to check cooldown
 function getRemainingCooldown(userId) {
   const info = claimedAccounts[userId];
   if (!info) return 0;
@@ -59,7 +51,25 @@ client.once(Events.ClientReady, () => {
 client.on(Events.InteractionCreate, async interaction => {
   // Handle /generateaccount command
   if (interaction.isChatInputCommand() && interaction.commandName === 'generateaccount') {
-    // Check cooldown
+    const existing = claimedAccounts[interaction.user.id];
+    if (existing) {
+      // User already has an account - show info instantly
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('You Already Have an Account!')
+            .addFields(
+              { name: 'Username', value: `\`${existing.username}\`` },
+              { name: 'Password', value: `\`${existing.password}\`` }
+            )
+            .setColor(0x00ff00)
+        ],
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Check cooldown (not strictly needed now, but keeps the code future-proof)
     const remaining = getRemainingCooldown(interaction.user.id);
     if (remaining > 0) {
       const hours = Math.floor(remaining / (60 * 60 * 1000));
@@ -98,17 +108,18 @@ client.on(Events.InteractionCreate, async interaction => {
 
   // Handle button interaction
   if (interaction.isButton() && interaction.customId === 'generate_account_btn') {
-    // Check cooldown again (in case user tries to double-dip)
-    const remaining = getRemainingCooldown(interaction.user.id);
-    if (remaining > 0) {
-      const hours = Math.floor(remaining / (60 * 60 * 1000));
-      const mins = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+    // If user already has an account, show it instantly
+    const existing = claimedAccounts[interaction.user.id];
+    if (existing) {
       await interaction.reply({
         embeds: [
           new EmbedBuilder()
-            .setTitle('Cooldown')
-            .setDescription(`You must wait **${hours}h ${mins}m** before generating another account.`)
-            .setColor(0xff0000)
+            .setTitle('You Already Have an Account!')
+            .addFields(
+              { name: 'Username', value: `\`${existing.username}\`` },
+              { name: 'Password', value: `\`${existing.password}\`` }
+            )
+            .setColor(0x00ff00)
         ],
         ephemeral: true
       });
