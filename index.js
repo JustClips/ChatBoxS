@@ -71,12 +71,13 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (interaction.commandName === 'followall') {
-    // Robust admin check for slash commands (fixes crash)
-    const isAdmin = interaction.member?.permissions instanceof PermissionsBitField
-      ? interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)
-      : interaction.member?.permissions?.has?.('Administrator');
-
-    if (!isAdmin) {
+    // Check for admin permission in a safe way
+    if (
+      !interaction.guild ||
+      !interaction.member ||
+      !interaction.member.permissions ||
+      !interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)
+    ) {
       await interaction.reply({ content: "You do not have permission to use this command.", ephemeral: true });
       return;
     }
